@@ -1,7 +1,7 @@
 package algorithmia.spark
 
 import com.algorithmia._
-import com.algorithmia.algo.{AlgoSuccess, AlgoResponse, AlgoFailure}
+import com.algorithmia.algo.{FutureAlgoResponse, AlgoSuccess, AlgoResponse, AlgoFailure}
 import org.apache.spark.{SparkContext, SparkConf}
 
 import scala.util.Try
@@ -15,22 +15,37 @@ object Main extends App {
     * from the algorithms
     */
   override def main (args: Array[String]) {
-    val conf = new SparkConf().setAppName("Algorithmia Spark Test").setMaster("local[1]") // Need spark hostname here
+    // Set spark hostname here, for local host the number in parentheses is the thread count
+    val SPARK_HOSTNAME = "local[100]"
+
+    // Set # partitions for processing the input file
+    val NUM_PARTITIONS = 1
+    val INPUT_FILE_NAME = "file:///workspace/spark-test/test-data"
+
+    // Algorithmia variables to set, your api key and the algorithm you want to call
+    val ALGORITHMIA_API_KEY =  "/* YOUR API KEY */"
+    val ALGORITHMIA_ALGO_NAME = "algo://demo/Hello" // Set the name of the algorithm you want to call here
+
+    // In order to ensure there are enough HTTP connections to the API server set NUM_CONNECTIONS appropriately
+    // for the amount of parallelism the spark task is doing.  This is primarily for local testing as in a cluster
+    // mode you can just increase the number of partitions and they will run on separate hosts
+    val NUM_CONNECTIONS = 20
+
+    val conf = new SparkConf().setAppName("Algorithmia Spark Test").setMaster(SPARK_HOSTNAME)
     val spark = new SparkContext(conf)
 
-    val textfile = spark.textFile("file:///home/patrick/workspace/testdata") // Can add # partitions if desired
+    val textfile = spark.textFile(INPUT_FILE_NAME, NUM_PARTITIONS)
 
     // Use mapPartitions to avoid client creation on every record
     val results = textfile.mapPartitions(lines => {
-      val client = Algorithmia.client("/* YOUR API KEY */")
-      val algo = client.algo("algo://pmcq/Hello/0.1.3")
+      val client = Algorithmia.client(ALGORITHMIA_API_KEY, NUM_CONNECTIONS)
 
-      // Here we could also do batching call like algo.pipeMany
+      val algo = client.algo(s"${ALGORITHMIA_ALGO_NAME}")
+      // Here you could also call pipeJsonAsync which will allow each spark task to make
+      // NUM_CONNECTIONS calls concurrently
       lines.map(line => {
         Try(algo.pipeJson(line))
       })
-
-      // Potentially would want to retry calls which threw an APIException if desired
     })
 
     // To prevent exceptions from happening at other points it's best to filter the failed response out
@@ -39,7 +54,7 @@ object Main extends App {
         case success: Success[AlgoResponse] => {
           success.get match {
             case s: AlgoSuccess => {
-              // Success! Emit algoritm output and count of 1
+              // Success! Emit algorithm output and count of 1
               List((s.asString, 1))
             }
             case f: AlgoFailure => {
@@ -51,7 +66,7 @@ object Main extends App {
         }
         case failure: Failure[AlgoResponse] => {
           // API Exception/Bad request errors
-          println("Failure! - " + failure.exception.getMessage)
+          println(s"Failure! - ${failure} - ${failure.exception} - ${failure.exception.getMessage}")
           None
         }
       }
