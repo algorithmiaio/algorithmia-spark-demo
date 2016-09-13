@@ -11,8 +11,8 @@ import scala.collection.JavaConverters._
 object Main extends App {
 
   /**
-    * Calls HelloWorld algorithm for each line in a given textfile, then performs a wordCount based on the outputs
-    * from the algorithms
+    * Gets a list of files from the data API, calls image tagger on each image,
+    * extracts the most probable tag, and then does a group/count on the tags
     */
   override def main (args: Array[String]) {
 
